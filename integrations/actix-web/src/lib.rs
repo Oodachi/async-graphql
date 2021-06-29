@@ -16,9 +16,8 @@ use actix_web::http::{Method, StatusCode};
 use actix_web::{http, Error, FromRequest, HttpRequest, HttpResponse, Responder, Result};
 use async_graphql::http::MultipartOptions;
 use async_graphql::ParseRequestError;
-use futures_channel::mpsc;
 use futures_util::future::{self, FutureExt};
-use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use futures_util::{StreamExt, TryStreamExt};
 
 /// Extractor for GraphQL request.
 ///
@@ -37,9 +36,9 @@ type BatchToRequestMapper =
     fn(<<BatchRequest as FromRequest>::Future as Future>::Output) -> Result<Request>;
 
 impl FromRequest for Request {
+    type Config = MultipartOptions;
     type Error = Error;
     type Future = future::Map<<BatchRequest as FromRequest>::Future, BatchToRequestMapper>;
-    type Config = MultipartOptions;
 
     fn from_request(req: &HttpRequest, payload: &mut Payload<PayloadStream>) -> Self::Future {
         BatchRequest::from_request(req, payload).map(|res| {
@@ -66,9 +65,9 @@ impl BatchRequest {
 }
 
 impl FromRequest for BatchRequest {
+    type Config = MultipartOptions;
     type Error = Error;
     type Future = Pin<Box<dyn Future<Output = Result<BatchRequest>>>>;
-    type Config = MultipartOptions;
 
     fn from_request(req: &HttpRequest, payload: &mut Payload<PayloadStream>) -> Self::Future {
         let config = req.app_data::<Self::Config>().cloned().unwrap_or_default();
@@ -83,7 +82,8 @@ impl FromRequest for BatchRequest {
                 .and_then(|value| value.to_str().ok())
                 .map(|value| value.to_string());
 
-            let (mut tx, rx) = mpsc::channel(16);
+            let (tx, rx) = async_channel::bounded(16);
+
 
             // Payload is !Send so we create indirection with a channel
             let mut payload = payload.take();
